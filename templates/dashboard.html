@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sensor Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0; padding: 0;
+      background-color: #f4f6f9;
+      color: #333;
+    }
+    header {
+      background: #1e3a8a;
+      color: white;
+      padding: 15px;
+      text-align: center;
+    }
+    .container {
+      max-width: 1300px;
+      margin: 20px auto;
+      padding: 10px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      transition: transform 0.2s;
+    }
+    .card:hover { transform: scale(1.01); }
+    h2 {
+      margin-bottom: 10px;
+      font-size: 18px;
+      border-bottom: 2px solid #eee;
+      padding-bottom: 5px;
+      color: #1e3a8a;
+    }
+    .anomalies {
+      margin-top: 20px;
+      background: white;
+      padding: 15px;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    .alert {
+      padding: 10px;
+      margin: 5px 0;
+      border-radius: 6px;
+      font-weight: bold;
+    }
+    .alert.normal {
+      background: #d1fae5;
+      color: #065f46;
+      border-left: 5px solid #10b981;
+    }
+    .alert.anomaly {
+      background: #fee2e2;
+      color: #b91c1c;
+      border-left: 5px solid #ef4444;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Real-Time Sensor Data Dashboard</h1>
+    <p>Live monitoring of Temperature, Humidity, Vibration, and Current (last 1 hour)</p>
+  </header>
+
+  <div class="container">
+    <div class="grid">
+      <div class="card"><h2>Temperature (°C)</h2><canvas id="tempChart"></canvas></div>
+      <div class="card"><h2>Vibration (g-force)</h2><canvas id="vibChart"></canvas></div>
+      <div class="card"><h2>Humidity (%RH)</h2><canvas id="humChart"></canvas></div>
+      <div class="card"><h2>Current (Amps)</h2><canvas id="curChart"></canvas></div>
+    </div>
+
+    <div class="anomalies">
+      <h2>⚠️ Recent Anomalies</h2>
+      <div id="anomaliesList"></div>
+    </div>
+  </div>
+
+  <script>
+    const charts = {};
+
+    async function loadData() {
+      try {
+        const response = await fetch('/api/data');
+        const data = await response.json();
+
+        const timestamps = data.map(d => new Date(d.timestamp).toLocaleTimeString());
+        const datasets = {
+          tempChart: data.map(d => ({ y: d.temperature, anomaly: d.is_anomaly })),
+          vibChart:  data.map(d => ({ y: d.vibration, anomaly: d.is_anomaly })),
+          humChart:  data.map(d => ({ y: d.humidity, anomaly: d.is_anomaly })),
+          curChart:  data.map(d => ({ y: d.current, anomaly: d.is_anomaly }))
+        };
+
+        function createOrUpdateChart(ctxId, labels, values, label) {
+          const ctx = document.getElementById(ctxId).getContext('2d');
+          const dataPoints = values.map(v => v.y);
+          const colors = values.map(v => v.anomaly ? '#ef4444' : '#3b82f6');
+
+          if (charts[ctxId]) {
+            charts[ctxId].data.labels = labels;
+            charts[ctxId].data.datasets[0].data = dataPoints;
+            charts[ctxId].data.datasets[0].pointBackgroundColor = colors;
+            charts[ctxId].update('quiet');
+          } else {
+            charts[ctxId] = new Chart(ctx, {
+              type: 'line',
+              data: {
+                labels: labels,
+                datasets: [{
+                  label: label,
+                  data: dataPoints,
+                  borderColor: '#3b82f6',
+                  backgroundColor: 'rgba(59,130,246,0.1)',
+                  borderWidth: 2,
+                  tension: 0.4,
+                  fill: true,
+                  pointBackgroundColor: colors,
+                  pointRadius: values.map(v => v.anomaly ? 6 : 3),
+                  pointHoverRadius: 7
+                }]
+              },
+              options: {
+                responsive: true,
+                plugins: { legend: { display: true } },
+                scales: { y: { beginAtZero: true } }
+              }
+            });
+          }
+        }
+
+        createOrUpdateChart('tempChart', timestamps, datasets.tempChart, "Temperature (°C)");
+        createOrUpdateChart('vibChart',  timestamps, datasets.vibChart,  "Vibration (g)");
+        createOrUpdateChart('humChart',  timestamps, datasets.humChart,  "Humidity (%RH)");
+        createOrUpdateChart('curChart',  timestamps, datasets.curChart,  "Current (A)");
+
+        // --- Anomalies Log ---
+        const anomalies = data.filter(d => d.is_anomaly);
+        const list = document.getElementById('anomaliesList');
+        if (anomalies.length === 0) {
+          list.innerHTML = '<p class="alert normal"> No anomalies detected.</p>';
+        } else {
+          list.innerHTML = anomalies.map(a =>
+            `<p class="alert anomaly"> At ${new Date(a.timestamp).toLocaleTimeString()}: ${a.anomalies.join(', ')}</p>`
+          ).join('');
+        }
+      } catch (error) {
+        console.error("API Error:", error);
+        document.getElementById('anomaliesList').innerHTML =
+          '<p class="alert anomaly"> Could not connect to the server.</p>';
+      }
+    }
+
+    loadData();
+    setInterval(loadData, 10000); // refresh every 10s
+  </script>
+</body>
+</html>
